@@ -16,7 +16,7 @@ import time
 import display as D
 import hw
 import config
-from seq import Seq
+from sequencer import Sequencer
 from menu import Menu
 
 
@@ -30,7 +30,7 @@ class App:
         self.rst = hw.TrigIn(config.PIN_RST_IN)
         self.sw_dir = hw.Toggle(config.PIN_SW_DIR)
         self.sw_mode = hw.Toggle(config.PIN_SW_MODE)
-        self.seq = Seq()
+        self.seq = Sequencer()
         self.menu = Menu(self)
 
         self.clock_src = 'demo'      # start in demo so it plays without a clock
