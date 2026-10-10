@@ -1,0 +1,139 @@
+# menu.py - the encoder menu, drawn in the text area under the square
+#
+#   click in play view  -> open menu
+#   turn                -> move between items
+#   click on an item    -> edit it (turn to change, click again when done)
+#   click on Exit       -> back to play view (also closes after 12 s idle)
+
+import time
+import display as D
+import logic
+import seq as S
+
+NOTE = D.NAMES
+
+
+def _items(app):
+    q = app.seq
+    it = [
+        # (label, current value as text, change(delta), what to redraw)
+        ('Mode', lambda: 'Matrix' if q.mode == 'matrix' else 'Clock',
+         lambda d: setattr(q, 'mode', 'clock' if q.mode == 'matrix' else 'matrix'), 'top'),
+    ]
+    if q.mode == 'matrix':
+        it += [
+            ('Form', lambda: q.form,
+             lambda d: setattr(q, 'form', S.FORMS[(S.FORMS.index(q.form) + d) % 4]), 'line'),
+            ('Number', lambda: str(q.num),
+             lambda d: setattr(q, 'num', (q.num + d) % 12), 'line'),
+            ('New row', lambda: 'click', None, 'new'),
+            ('Chords', lambda: 'strict' if logic.CHORDS is logic.STRICT else 'maj/min',
+             lambda d: logic.set_strict(logic.CHORDS is not logic.STRICT), 'none'),
+        ]
+    else:
+        it += [
+            ('Hour', lambda: S.toneclock_roman(q.hour),
+             lambda d: (setattr(q, 'hour', (q.hour - 1 + d) % 12 + 1), setattr(q, 'variant', 0)), 'top'),
+            ('Field', lambda: '%d/%d' % (q.variant + 1, q.variants()),
+             lambda d: setattr(q, 'variant', (q.variant + d) % q.variants()), 'top'),
+        ]
+    it += [
+        ('Transpose', lambda: NOTE[q.transpose],
+         lambda d: setattr(q, 'transpose', (q.transpose + d) % 12), 'top'),
+        ('Octave', lambda: str(q.octave),
+         lambda d: setattr(q, 'octave', max(0, min(4, q.octave + d))), 'none'),
+        ('Clock', lambda: app.clock_src,
+         lambda d: app.set_clock(('ext', 'int', 'demo')[(('ext', 'int', 'demo').index(app.clock_src) + d) % 3]), 'none'),
+        ('Tempo', lambda: '%d bpm' % app.bpm,
+         lambda d: setattr(app, 'bpm', max(20, min(400, app.bpm + 4 * d))), 'none'),
+        ('Gate', lambda: '%d%%' % app.gate_pct,
+         lambda d: setattr(app, 'gate_pct', max(5, min(95, app.gate_pct + 5 * d))), 'none'),
+        ('Labels', lambda: 'notes' if D.USE_NAMES else 'numbers',
+         lambda d: _toggle_names(app), 'top'),
+        ('Exit', lambda: '', None, 'exit'),
+    ]
+    return it
+
+
+def _toggle_names(app):
+    D.USE_NAMES = not D.USE_NAMES
+    app.screen.matrix.flush_cache()
+
+
+class Menu:
+    VISIBLE = D.STATUS_LINES - 1          # first line is the title
+
+    def __init__(self, app):
+        self.app = app
+        self.open = False
+        self.cur = 0
+        self.top = 0
+        self.editing = False
+        self.t = 0
+
+    def items(self):
+        return _items(self.app)
+
+    def show(self):
+        self.open, self.editing = True, False
+        self.t = time.ticks_ms()
+        self.app.screen.clear_text()
+        self.draw(full=True)
+
+    def close(self):
+        self.open = False
+        self.app.screen.clear_text()
+        self.app.draw_status(all_lines=True)
+
+    def draw(self, full=False):
+        sc = self.app.screen
+        items = self.items()
+        self.cur = min(self.cur, len(items) - 1)
+        if self.cur < self.top:
+            self.top = self.cur
+        if self.cur >= self.top + self.VISIBLE:
+            self.top = self.cur - self.VISIBLE + 1
+        if full:
+            sc.line(0, 'MENU', D.DIM)
+        for i in range(self.VISIBLE):
+            k = self.top + i
+            if k >= len(items):
+                sc.line(i + 1, '')
+                continue
+            lab, val, _, _ = items[k]
+            txt = '%-9s %s' % (lab, val())
+            if k == self.cur:
+                bg = D.EDIT_BG if self.editing else D.SEL_BG
+                fg = D.NOW_TXT if self.editing else D.TXT
+                sc.line(i + 1, txt, fg, bg)
+            else:
+                sc.line(i + 1, txt)
+
+    def turn(self, d):
+        self.t = time.ticks_ms()
+        items = self.items()
+        if self.editing:
+            lab, _, change, redraw = items[self.cur]
+            change(d)
+            self.app.changed(redraw)
+        else:
+            self.cur = (self.cur + d) % len(items)
+        self.draw()
+
+    def click(self):
+        self.t = time.ticks_ms()
+        items = self.items()
+        lab, _, change, redraw = items[self.cur]
+        if redraw == 'exit':
+            self.close()
+            return
+        if redraw == 'new':
+            self.app.changed('new')
+            self.draw()
+            return
+        self.editing = not self.editing
+        self.draw()
+
+    def idle(self):
+        if self.open and time.ticks_diff(time.ticks_ms(), self.t) > 12000:
+            self.close()
