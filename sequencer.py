@@ -1,19 +1,14 @@
 # seq.py - what is playing: matrix rows or tone clock fields
 import logic
 import toneclock
-from enum import Enum
 
 FORMS = ('P', 'R', 'I', 'RI')
 FLIP_DIR = {'P': 'R', 'R': 'P', 'I': 'RI', 'RI': 'I'}      # DIR toggle
 FLIP_MODE = {'P': 'I', 'I': 'P', 'R': 'RI', 'RI': 'R'}     # MODE toggle
 
-class Mode(Enum):
-    MATRIX = 1
-    CLOCK = 2
-
 class Sequencer:
     def __init__(self):
-        self.mode = Mode.MATRIX        # 'matrix' or 'clock'
+        self.mode = 'matrix'           # 'matrix' or 'clock'
         self.form = 'P'
         self.num = 0                # matrix: which P/R/I/RI (0..11)
         self.hour = 1               # clock: 1..12
@@ -40,7 +35,7 @@ class Sequencer:
 
     def build(self, dir_flip=False, mode_flip=False):
         """Work out the 12 notes to play. Call after any change."""
-        if self.mode == Mode.MATRIX:
+        if self.mode == 'matrix':
             f = self.form
             if mode_flip:
                 f = FLIP_MODE[f]
@@ -65,7 +60,7 @@ class Sequencer:
         return ('row', r) if r == r2 else ('col', c)
 
     def name(self):
-        if self.mode == Mode.MATRIX:
+        if self.mode == 'matrix':
             return '%s%d' % (self.form_now, self.num)
         return 'Hour %s' % toneclock_roman(self.hour)
 

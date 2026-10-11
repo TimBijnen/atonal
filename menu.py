@@ -8,7 +8,7 @@
 import time
 import display as D
 import logic
-from sequencer import Sequencer, Mode
+from sequencer import FORMS, toneclock_roman
 
 NOTE = D.NAMES
 
@@ -17,13 +17,13 @@ def _items(app):
     q = app.seq
     it = [
         # (label, current value as text, change(delta), what to redraw)
-        ('Mode', lambda: 'Matrix' if q.mode == Mode.MATRIX else 'Clock',
-         lambda d: setattr(q, 'mode', Mode.CLOCK if q.mode == Mode.MATRIX else Mode.MATRIX), 'top'),
+        ('Mode', lambda: 'Matrix' if q.mode == 'matrix' else 'Clock',
+         lambda d: setattr(q, 'mode', 'clock' if q.mode == 'matrix' else 'matrix'), 'top'),
     ]
-    if q.mode == Mode.MATRIX:
+    if q.mode == 'matrix':
         it += [
             ('Form', lambda: q.form,
-             lambda d: setattr(q, 'form', Sequencer.FORMS[(Sequencer.FORMS.index(q.form) + d) % 4]), 'line'),
+             lambda d: setattr(q, 'form', FORMS[(FORMS.index(q.form) + d) % 4]), 'line'),
             ('Number', lambda: str(q.num),
              lambda d: setattr(q, 'num', (q.num + d) % 12), 'line'),
             ('New row', lambda: 'click', None, 'new'),
@@ -32,7 +32,7 @@ def _items(app):
         ]
     else:
         it += [
-            ('Hour', lambda: Sequencer.toneclock_roman(q.hour),
+            ('Hour', lambda: toneclock_roman(q.hour),
              lambda d: (setattr(q, 'hour', (q.hour - 1 + d) % 12 + 1), setattr(q, 'variant', 0)), 'top'),
             ('Field', lambda: '%d/%d' % (q.variant + 1, q.variants()),
              lambda d: setattr(q, 'variant', (q.variant + d) % q.variants()), 'top'),

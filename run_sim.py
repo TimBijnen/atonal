@@ -11,10 +11,8 @@
 #   d              toggle DIR switch              m  toggle MODE switch
 #   esc / close    quit
 #
-# It drops a fake `machine` and `framebuf` onto the import path, swaps the
-# real SPI LCD for an in-memory one, and reconciles the half-finished
-# Mode refactor so the firmware actually runs. Nothing in the firmware
-# files is modified.
+# It drops a fake `machine` and `framebuf` onto the import path and swaps
+# the real SPI LCD for an in-memory one. Nothing in the firmware is modified.
 import os
 import sys
 import time
@@ -49,27 +47,10 @@ def _sim_init():
 
 display.init = _sim_init
 
-# --- 3. reconcile the Mode enum/string split across the firmware ---------
-import enum
-import sequencer
-
-
-class Mode(str, enum.Enum):          # compares equal to 'matrix' / 'clock'
-    MATRIX = "matrix"
-    CLOCK = "clock"
-
-
-sequencer.Mode = Mode
-sequencer.Sequencer.FORMS = sequencer.FORMS
-sequencer.Sequencer.toneclock_roman = staticmethod(sequencer.toneclock_roman)
-
-import menu                           # bind menu's names to the patched ones
-menu.Mode = Mode
-
 import machine                        # the fake one, for driving inputs
 
 
-# --- 4. run the firmware's main loop on a worker thread ------------------
+# --- 3. run the firmware's main loop on a worker thread ------------------
 def _run_firmware():
     try:
         import main                   # main.py ends with App().run() -> loops here
