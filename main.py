@@ -35,6 +35,7 @@ class App:
         self.menu = Menu(self)
         self.demo = Demo(self)
 
+        self.demo_active = True
         self.clock_src = 'demo'      # start in demo so it plays without a clock
         self.bpm = 120
         self.gate_pct = 50
@@ -44,6 +45,9 @@ class App:
         self.rounds = 0              # completed rows, for demo mode
         self.flips = (False, False)
         self.last_note = None
+
+        global app
+        app = self
 
         self.redraw_top()
         self.draw_status(all_lines=True)
@@ -74,7 +78,8 @@ class App:
             if self.clock_src == 'ext':
                 sc.line(3, 'Clock ext (CLK in)', D.DIM)
             else:
-                sc.line(3, '%s %d bpm' % ('DEMO' if self.clock_src == 'demo' else 'Int', self.bpm), D.DIM)
+                label = 'DEMO' if self.demo_active and self.clock_src == 'demo' else 'Int'
+                sc.line(3, '%s %d bpm' % (label, self.bpm), D.DIM)
             sc.line(4, 'DAC ok' if self.out.dac_ok else 'No DAC (screen)', D.DIM)
             sc.line(5, 'Click=menu Hold=new', D.DIM)
 
@@ -108,7 +113,15 @@ class App:
 
     def set_clock(self, src):
         self.clock_src = src
+        self.demo_active = (src == 'demo')
         self.next_tick = time.ticks_ms()
+
+    def set_demo(self, enabled):
+        self.demo_active = bool(enabled)
+        if enabled:
+            self.clock_src = 'demo'
+        self.next_tick = time.ticks_ms()
+        self.draw_status(all_lines=True)
 
     # ---------------------------------------------------------- playing
     def play_step(self):
@@ -138,7 +151,7 @@ class App:
         if wrapped:
             self.out.set(self.out.end, True)
             self.rounds += 1
-            if self.clock_src == 'demo':
+            if self.demo_active and self.clock_src == 'demo':
                 self.demo.next()
 
     def outputs_off(self, now):
@@ -195,7 +208,13 @@ class App:
                     self.play_step()
             else:
                 self.clk.take()                       # ignore the jack
-                if time.ticks_diff(now, self.next_tick) >= 0:
+                if self.demo_active and self.clock_src == 'demo':
+                    if time.ticks_diff(now, self.next_tick) >= 0:
+                        self.next_tick = time.ticks_add(self.next_tick, 60000 // self.bpm)
+                        if time.ticks_diff(now, self.next_tick) > 0:     # fell behind
+                            self.next_tick = time.ticks_add(now, 60000 // self.bpm)
+                        self.play_step()
+                elif self.clock_src == 'int' and time.ticks_diff(now, self.next_tick) >= 0:
                     self.next_tick = time.ticks_add(self.next_tick, 60000 // self.bpm)
                     if time.ticks_diff(now, self.next_tick) > 0:     # fell behind
                         self.next_tick = time.ticks_add(now, 60000 // self.bpm)
@@ -205,4 +224,8 @@ class App:
             time.sleep_ms(1)
 
 
-App().run()
+app = None
+
+if __name__ == "__main__":
+    app = App()
+    app.run()

@@ -9,6 +9,7 @@
 #   space          click the encoder button      (hold = "long" = new row)
 #   c              clock pulse (CLK in)           r  reset (RST in)
 #   d              toggle DIR switch              m  toggle MODE switch
+#   z              start/stop the demo
 #   esc / close    quit
 #
 # It drops a fake `machine` and `framebuf` onto the import path and swaps
@@ -34,6 +35,7 @@ import simdisplay
 
 W, H = 320, 480
 _lcd = {}          # shared handle to the SimLCD once the firmware builds it
+sim_app = None
 
 
 # --- 2. swap the real LCD for the in-memory one --------------------------
@@ -53,8 +55,11 @@ import machine                        # the fake one, for driving inputs
 
 # --- 3. run the firmware's main loop on a worker thread ------------------
 def _run_firmware():
+    global sim_app
     try:
-        import main                   # main.py ends with App().run() -> loops here
+        import main
+        sim_app = main.App()
+        sim_app.run()
     except Exception:
         import traceback
         traceback.print_exc()
@@ -118,13 +123,24 @@ def _toggle(pin_id):
         p.drive(0 if p.value() else 1)
 
 
+def _toggle_demo():
+    app = sim_app
+    if app is None:
+        return
+    app.set_demo(not app.demo_active)
+
+
 # --- headless snapshot mode ----------------------------------------------
 def snapshot_mode(seconds):
-    lcd = _start()
-    time.sleep(seconds)
-    out = os.path.join(HERE, "sim_out.png")
-    lcd.write_png(out)
-    print("wrote", out)
+    try:
+        lcd = _start()
+        time.sleep(seconds)
+        out = os.path.join(ROOT_DIR, "sim_out.png")
+        lcd.write_png(out)
+        print("wrote", out)
+    except KeyboardInterrupt:
+        print("\nInterrupted; exiting simulator.")
+        raise SystemExit(0)
 
 
 # --- windowed mode (pygame) ----------------------------------------------
@@ -134,50 +150,64 @@ def window_mode():
     except ImportError:
         sys.exit("pygame not found. Install it with:  pip install pygame\n"
                  "(or run headless:  python3 run_sim.py --snapshot 3 )")
-    lcd = _start()
-    pygame.init()
-    screen = pygame.display.set_mode((W, H))
-    pygame.display.set_caption("atonal - Pico twelve-tone sequencer (sim)")
-    surf = pygame.Surface((W, H))
-    clock = pygame.time.Clock()
-    running = True
-    while running:
-        for e in pygame.event.get():
-            if e.type == pygame.QUIT:
-                running = False
-            elif e.type == pygame.KEYDOWN:
-                if e.key == pygame.K_ESCAPE:
+    try:
+        lcd = _start()
+        pygame.init()
+        screen = pygame.display.set_mode((W, H))
+        pygame.display.set_caption("atonal - Pico twelve-tone sequencer (sim)")
+        surf = pygame.Surface((W, H))
+        clock = pygame.time.Clock()
+        running = True
+        while running:
+            for e in pygame.event.get():
+                if e.type == pygame.QUIT:
                     running = False
-                elif e.key == pygame.K_LEFT:
-                    _turn_encoder(-1)
-                elif e.key == pygame.K_RIGHT:
-                    _turn_encoder(+1)
-                elif e.key == pygame.K_SPACE:
-                    _set(config.PIN_ENC_SW, 0)    # active low
-                elif e.key == pygame.K_c:
-                    _pulse(config.PIN_CLK_IN)
-                elif e.key == pygame.K_r:
-                    _pulse(config.PIN_RST_IN)
-                elif e.key == pygame.K_d:
-                    _toggle(config.PIN_SW_DIR)
-                elif e.key == pygame.K_m:
-                    _toggle(config.PIN_SW_MODE)
-            elif e.type == pygame.KEYUP:
-                if e.key == pygame.K_SPACE:
-                    _set(config.PIN_ENC_SW, 1)
-        if lcd.dirty:
-            buf = lcd.snapshot()
-            lcd.dirty = False
-            img = pygame.image.frombuffer(buf, (W, H), "RGB")
-            surf.blit(img, (0, 0))
-        screen.blit(surf, (0, 0))
-        pygame.display.flip()
-        clock.tick(60)
-    pygame.quit()
+                elif e.type == pygame.KEYDOWN:
+                    if e.key == pygame.K_ESCAPE:
+                        running = False
+                    elif e.key == pygame.K_LEFT:
+                        _turn_encoder(-1)
+                    elif e.key == pygame.K_RIGHT:
+                        _turn_encoder(+1)
+                    elif e.key == pygame.K_SPACE:
+                        _set(config.PIN_ENC_SW, 0)    # active low
+                    elif e.key == pygame.K_c:
+                        _pulse(config.PIN_CLK_IN)
+                    elif e.key == pygame.K_r:
+                        _pulse(config.PIN_RST_IN)
+                    elif e.key == pygame.K_d:
+                        _toggle(config.PIN_SW_DIR)
+                    elif e.key == pygame.K_m:
+                        _toggle(config.PIN_SW_MODE)
+                    elif e.key == pygame.K_z:
+                        _toggle_demo()
+                elif e.type == pygame.KEYUP:
+                    if e.key == pygame.K_SPACE:
+                        _set(config.PIN_ENC_SW, 1)
+            if lcd.dirty:
+                buf = lcd.snapshot()
+                lcd.dirty = False
+                img = pygame.image.frombuffer(buf, (W, H), "RGB")
+                surf.blit(img, (0, 0))
+            screen.blit(surf, (0, 0))
+            pygame.display.flip()
+            clock.tick(60)
+    except KeyboardInterrupt:
+        print("\nInterrupted; exiting simulator.")
+        raise SystemExit(0)
+    finally:
+        try:
+            pygame.quit()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
-    if len(sys.argv) >= 2 and sys.argv[1] == "--snapshot":
-        snapshot_mode(float(sys.argv[2]) if len(sys.argv) > 2 else 3.0)
-    else:
-        window_mode()
+    try:
+        if len(sys.argv) >= 2 and sys.argv[1] == "--snapshot":
+            snapshot_mode(float(sys.argv[2]) if len(sys.argv) > 2 else 3.0)
+        else:
+            window_mode()
+    except KeyboardInterrupt:
+        print("\nInterrupted; exiting simulator.")
+        raise SystemExit(0)
