@@ -18,6 +18,7 @@ import hw
 import config
 from sequencer import Sequencer
 from menu import Menu
+from demo import Demo
 
 
 class App:
@@ -32,6 +33,7 @@ class App:
         self.sw_mode = hw.Toggle(config.PIN_SW_MODE)
         self.seq = Sequencer()
         self.menu = Menu(self)
+        self.demo = Demo(self)
 
         self.clock_src = 'demo'      # start in demo so it plays without a clock
         self.bpm = 120
@@ -137,30 +139,7 @@ class App:
             self.out.set(self.out.end, True)
             self.rounds += 1
             if self.clock_src == 'demo':
-                self.demo_next()
-
-    def demo_next(self):
-        """Demo: change something after every row."""
-        q, r = self.seq, self.rounds
-        if q.mode == 'matrix':
-            if r % 8 == 0:
-                q.mode, q.hour, q.variant = 'clock', (r // 8 - 1) % 12 + 1, 0
-                self.changed('top')
-            elif r % 4 == 0:
-                q.new_matrix()
-                self.changed('top')
-            else:
-                q.form = ('P', 'R', 'I', 'RI')[r % 4]
-                q.num = (q.num + 5) % 12
-                self.changed('line')
-        else:
-            if r % 8 == 3:
-                q.mode = 'matrix'
-                self.changed('top')
-            else:
-                q.variant = (q.variant + 1) % q.variants()
-                self.changed('top')
-        self.draw_status(all_lines=False)
+                self.demo.next()
 
     def outputs_off(self, now):
         if self.trig_off_at is not None and time.ticks_diff(now, self.trig_off_at) >= 0:

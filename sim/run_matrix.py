@@ -18,9 +18,10 @@ import sys
 import time
 import threading
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "sim"))   # machine/framebuf/_font/simdisplay
-sys.path.insert(0, HERE)                          # the firmware modules
+SIM_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SIM_DIR)
+sys.path.insert(0, SIM_DIR)                     # machine/framebuf/_font/simdisplay
+sys.path.insert(0, ROOT_DIR)                     # the firmware modules
 
 # --- 1. give CPython's `time` the MicroPython tick helpers ---------------
 if not hasattr(time, "ticks_ms"):
