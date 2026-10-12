@@ -10,6 +10,7 @@
 # Screen layout (portrait):
 #   y   0..320   the square (matrix mode) or the clock face (tone clock mode)
 #   y 332..480   status lines, or the menu while it is open
+# The mode picker covers the whole screen while it is open.
 
 from machine import Pin, SPI
 import framebuf
@@ -36,6 +37,8 @@ NOW_TXT = rgb(0, 0, 0)
 DIM     = rgb(120, 128, 140)   # labels, inactive text
 SEL_BG  = rgb(30, 70, 140)     # selected menu line
 EDIT_BG = rgb(255, 170, 0)     # menu value being edited
+PANEL   = rgb(18, 21, 27)      # mode picker panel
+BORDER  = rgb(60, 66, 78)      # mode picker panel edge
 # one colour per trichord on the tone clock
 GROUP = (rgb(80, 160, 255), rgb(255, 110, 110), rgb(110, 220, 130), rgb(220, 130, 255))
 
@@ -158,6 +161,7 @@ class Screen:
         lcd.fill_rect(0, 0, W, H, BG)
         self.matrix = MatrixView(lcd)
         self.clock = ClockView(lcd)
+        self.picker = ModePicker(lcd)
 
     def clear_top(self):
         self.lcd.fill_rect(0, 0, W, TOP_H, BG)
@@ -255,9 +259,15 @@ CX, CY, RAD, DOT = W // 2, TOP_H // 2, 128, 15
 ROMAN = ('I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII')
 
 
-def _pos(pc):
+def _pos(pc, cx=CX, cy=CY, rad=RAD):
     a = math.radians(pc * 30)               # C on top, clockwise
-    return int(CX + RAD * math.sin(a)), int(CY - RAD * math.cos(a))
+    return int(cx + rad * math.sin(a)), int(cy - rad * math.cos(a))
+
+
+def _disc(lcd, x, y, r, color):
+    for dy in range(-r, r + 1):
+        dx = int(math.sqrt(r * r - dy * dy))
+        lcd.fill_rect(x - dx, y + dy, 2 * dx + 1, 1, color)
 
 
 class ClockView:
@@ -268,11 +278,6 @@ class ClockView:
         self.groups = []
         self.group_of = {}
         self.now = None
-
-    def _disc(self, x, y, r, color):
-        for dy in range(-r, r + 1):
-            dx = int(math.sqrt(r * r - dy * dy))
-            self.lcd.fill_rect(x - dx, y + dy, 2 * dx + 1, 1, color)
 
     def _line(self, p0, p1, color):
         (x0, y0), (x1, y1) = p0, p1
@@ -291,7 +296,7 @@ class ClockView:
             col, fg = CELL, DIM
         else:
             col, fg = GROUP[g % 4], NOW_TXT
-        self._disc(x, y, DOT, col)
+        _disc(self.lcd, x, y, DOT, col)
         lab = label(pc)
         _, buf, w, h = big_text(lab, fg, col, 2, 1.5 if len(lab) > 1 else 2)
         self.lcd.blit(buf, x - w // 2, y - h // 2 + 1, w, h)
@@ -324,6 +329,82 @@ class ClockView:
             self._dot(old, 'normal')
         if pc is not None:
             self._dot(pc, 'now')
+
+
+# ------------------------------------------------------------------ mode picker
+MODES = (('matrix', 'Matrix'), ('clock', 'Tone clock'))
+PK_X, PK_Y, PK_W, PK_H = 12, 64, W - 24, 352      # panel
+CARD_X, CARD_W, CARD_H = PK_X + 12, PK_W - 24, 104
+CARD_Y = (PK_Y + 64, PK_Y + 64 + CARD_H + 16)
+ICON = 56                                          # icon box, px
+
+
+class ModePicker:
+    """Full-screen modal to choose matrix or tone clock. The views under it
+    are not drawn while it is open; redraw them when it closes."""
+
+    def __init__(self, lcd):
+        self.lcd = lcd
+        self.sel = 0
+        self.current = 0
+
+    def _text(self, s, x, y, fg, bg, scale=2):
+        _, buf, w, h = big_text(s, fg, bg, scale)
+        self.lcd.blit(buf, x, y, w, h)
+
+    def _centred(self, s, y, fg, bg, scale):
+        self._text(s, (W - len(s) * 8 * scale) // 2, y, fg, bg, scale)
+
+    def _icon_matrix(self, x, y):
+        step = (ICON - 2) // 4                     # 4x4 cells, 2 px gaps
+        for r in range(4):
+            for c in range(4):
+                col = NOW_BG if (r, c) == (0, 1) else DIM
+                self.lcd.fill_rect(x + c * step, y + r * step, step - 2, step - 2, col)
+
+    def _icon_clock(self, x, y):
+        cx, cy = x + ICON // 2, y + ICON // 2
+        for pc in range(12):
+            px, py = _pos(pc, cx, cy, ICON // 2 - 5)
+            _disc(self.lcd, px, py, 4, NOW_BG if pc == 0 else GROUP[(pc // 3) % 4])
+
+    def _card(self, i):
+        x, y = CARD_X, CARD_Y[i]
+        on = i == self.sel
+        bg = SEL_BG if on else CELL
+        if on:
+            self.lcd.fill_rect(x, y, CARD_W, CARD_H, NOW_BG)        # 3 px edge
+            self.lcd.fill_rect(x + 3, y + 3, CARD_W - 6, CARD_H - 6, bg)
+        else:
+            self.lcd.fill_rect(x, y, CARD_W, CARD_H, bg)
+        ix, iy = x + 16, y + (CARD_H - ICON) // 2
+        (self._icon_matrix if i == 0 else self._icon_clock)(ix, iy)
+        tx, mid = ix + ICON + 14, y + CARD_H // 2
+        fg = TXT if on else DIM
+        if i == self.current:
+            self._text(MODES[i][1], tx, mid - 14, fg, bg)
+            self._text('current', tx, mid + 8, fg, bg, 1)
+        else:
+            self._text(MODES[i][1], tx, mid - 8, fg, bg)
+
+    def show(self, sel, current):
+        """Draw the whole modal. sel, current: index into MODES."""
+        self.sel, self.current = sel, current
+        lcd = self.lcd
+        lcd.fill_rect(0, 0, W, H, BG)
+        lcd.fill_rect(PK_X, PK_Y, PK_W, PK_H, BORDER)               # 1 px edge
+        lcd.fill_rect(PK_X + 1, PK_Y + 1, PK_W - 2, PK_H - 2, PANEL)
+        self._centred('MODE', PK_Y + 24, DIM, PANEL, 2)
+        for i in range(len(MODES)):
+            self._card(i)
+        self._centred('Turn: choose   Click: OK', PK_Y + PK_H - 28, DIM, PANEL, 1)
+
+    def select(self, sel):
+        if sel == self.sel:
+            return
+        old, self.sel = self.sel, sel
+        self._card(old)
+        self._card(sel)
 
 
 def init():

@@ -3,6 +3,7 @@
 #   click in play view  -> open menu
 #   turn                -> move between items
 #   click on an item    -> edit it (turn to change, click again when done)
+#   click on Mode       -> full-screen picker: turn to choose, click to switch
 #   click on Exit       -> back to play view (also closes after 12 s idle)
 
 import time
@@ -17,8 +18,7 @@ def _items(app):
     q = app.seq
     it = [
         # (label, current value as text, change(delta), what to redraw)
-        ('Mode', lambda: 'Matrix' if q.mode == 'matrix' else 'Clock',
-         lambda d: setattr(q, 'mode', 'clock' if q.mode == 'matrix' else 'matrix'), 'top'),
+        ('Mode', lambda: 'Matrix' if q.mode == 'matrix' else 'Clock', None, 'mode'),
     ]
     if q.mode == 'matrix':
         it += [
@@ -43,7 +43,7 @@ def _items(app):
         ('Octave', lambda: str(q.octave),
          lambda d: setattr(q, 'octave', max(0, min(4, q.octave + d))), 'none'),
         ('Clock', lambda: app.clock_src,
-         lambda d: app.set_clock(('ext', 'int', 'demo')[(('ext', 'int', 'demo').index(app.clock_src) + d) % 3]), 'none'),
+         lambda d: app.set_clock('int' if app.clock_src == 'ext' else 'ext'), 'none'),
         ('Tempo', lambda: '%d bpm' % app.bpm,
          lambda d: setattr(app, 'bpm', max(20, min(400, app.bpm + 4 * d))), 'none'),
         ('Gate', lambda: '%d%%' % app.gate_pct,
@@ -69,6 +69,8 @@ class Menu:
         self.cur = 0
         self.top = 0
         self.editing = False
+        self.picking = False                # mode picker open (covers the screen)
+        self.pick = 0
         self.t = 0
 
     def items(self):
@@ -109,8 +111,29 @@ class Menu:
             else:
                 sc.line(i + 1, txt)
 
+    # ---- mode picker
+    def _modes(self):
+        return [m for m, _ in D.MODES]
+
+    def open_picker(self):
+        self.picking = True
+        self.pick = self._modes().index(self.app.seq.mode)
+        self.app.screen.picker.show(self.pick, self.pick)
+
+    def close_picker(self, apply):
+        """Leave the picker, switching mode if apply, and go back to play view."""
+        self.picking = False
+        if apply:
+            self.app.seq.mode = self._modes()[self.pick]
+        self.app.redraw_top()
+        self.close()
+
     def turn(self, d):
         self.t = time.ticks_ms()
+        if self.picking:
+            self.pick = (self.pick + d) % len(D.MODES)
+            self.app.screen.picker.select(self.pick)
+            return
         items = self.items()
         if self.editing:
             lab, _, change, redraw = items[self.cur]
@@ -122,10 +145,16 @@ class Menu:
 
     def click(self):
         self.t = time.ticks_ms()
+        if self.picking:
+            self.close_picker(apply=True)
+            return
         items = self.items()
         lab, _, change, redraw = items[self.cur]
         if redraw == 'exit':
             self.close()
+            return
+        if redraw == 'mode':
+            self.open_picker()
             return
         if redraw == 'new':
             self.app.changed('new')
@@ -136,4 +165,7 @@ class Menu:
 
     def idle(self):
         if self.open and time.ticks_diff(time.ticks_ms(), self.t) > 12000:
-            self.close()
+            if self.picking:
+                self.close_picker(apply=False)
+            else:
+                self.close()

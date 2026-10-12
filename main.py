@@ -1,4 +1,4 @@
-# main.py - twelve-tone sequencer: matrix mode, tone clock mode, menu, demo
+# main.py - twelve-tone sequencer: matrix mode, tone clock mode, menu
 #
 # Controls
 #   turn encoder        play view: next/previous row number (matrix) or hour (tone clock)
@@ -9,8 +9,7 @@
 #   CLK in              next note (when Clock = ext)
 #   RST in              back to the first note
 #
-# Clock sources (menu): ext = CLK jack, int = internal tempo, demo = internal
-# tempo that also changes rows, modes and hours by itself.
+# Clock sources (menu): ext = CLK jack, int = internal tempo.
 
 import time
 import display as D
@@ -18,7 +17,6 @@ import hw
 import config
 from sequencer import Sequencer
 from menu import Menu
-from demo import Demo
 
 
 class App:
@@ -33,16 +31,13 @@ class App:
         self.sw_mode = hw.Toggle(config.PIN_SW_MODE)
         self.seq = Sequencer()
         self.menu = Menu(self)
-        self.demo = Demo(self)
 
-        self.demo_active = True
-        self.clock_src = 'demo'      # start in demo so it plays without a clock
+        self.clock_src = 'int'       # start on the internal clock so it plays without a cable
         self.bpm = 120
         self.gate_pct = 50
         self.next_tick = time.ticks_ms()
         self.gate_off_at = None
         self.trig_off_at = None
-        self.rounds = 0              # completed rows, for demo mode
         self.flips = (False, False)
         self.last_note = None
 
@@ -56,6 +51,8 @@ class App:
     def redraw_top(self):
         q, sc = self.seq, self.screen
         q.build(*self.flips)
+        if self.menu.picking:
+            return                    # covered by the mode picker; redrawn when it closes
         if q.mode == 'matrix':
             sc.matrix.show(q.matrix())
             kind, i = q.line()
@@ -78,8 +75,7 @@ class App:
             if self.clock_src == 'ext':
                 sc.line(3, 'Clock ext (CLK in)', D.DIM)
             else:
-                label = 'DEMO' if self.demo_active and self.clock_src == 'demo' else 'Int'
-                sc.line(3, '%s %d bpm' % (label, self.bpm), D.DIM)
+                sc.line(3, 'Int %d bpm' % self.bpm, D.DIM)
             sc.line(4, 'DAC ok' if self.out.dac_ok else 'No DAC (screen)', D.DIM)
             sc.line(5, 'Click=menu Hold=new', D.DIM)
 
@@ -104,7 +100,7 @@ class App:
             what = 'top'
         if what == 'top':
             self.redraw_top()
-        elif what == 'line' and q.mode == 'matrix':
+        elif what == 'line' and q.mode == 'matrix' and not self.menu.picking:
             q.build(*self.flips)
             kind, i = q.line()
             self.screen.matrix.set_line(kind, i)
@@ -113,15 +109,7 @@ class App:
 
     def set_clock(self, src):
         self.clock_src = src
-        self.demo_active = (src == 'demo')
         self.next_tick = time.ticks_ms()
-
-    def set_demo(self, enabled):
-        self.demo_active = bool(enabled)
-        if enabled:
-            self.clock_src = 'demo'
-        self.next_tick = time.ticks_ms()
-        self.draw_status(all_lines=True)
 
     # ---------------------------------------------------------- playing
     def play_step(self):
@@ -143,16 +131,12 @@ class App:
             self.gate_off_at = time.ticks_add(now, period * self.gate_pct // 100)
         else:
             self.gate_off_at = None                   # follows the clock input
-        if q.mode == 'matrix':
-            self.screen.matrix.set_now(key)
-        else:
-            self.screen.clock.set_now(key)
+        if not self.menu.picking:                 # views are hidden under the mode picker
+            view = self.screen.matrix if q.mode == 'matrix' else self.screen.clock
+            view.set_now(key)
         self.draw_note()
         if wrapped:
             self.out.set(self.out.end, True)
-            self.rounds += 1
-            if self.demo_active and self.clock_src == 'demo':
-                self.demo.next()
 
     def outputs_off(self, now):
         if self.trig_off_at is not None and time.ticks_diff(now, self.trig_off_at) >= 0:
@@ -208,13 +192,7 @@ class App:
                     self.play_step()
             else:
                 self.clk.take()                       # ignore the jack
-                if self.demo_active and self.clock_src == 'demo':
-                    if time.ticks_diff(now, self.next_tick) >= 0:
-                        self.next_tick = time.ticks_add(self.next_tick, 60000 // self.bpm)
-                        if time.ticks_diff(now, self.next_tick) > 0:     # fell behind
-                            self.next_tick = time.ticks_add(now, 60000 // self.bpm)
-                        self.play_step()
-                elif self.clock_src == 'int' and time.ticks_diff(now, self.next_tick) >= 0:
+                if time.ticks_diff(now, self.next_tick) >= 0:
                     self.next_tick = time.ticks_add(self.next_tick, 60000 // self.bpm)
                     if time.ticks_diff(now, self.next_tick) > 0:     # fell behind
                         self.next_tick = time.ticks_add(now, 60000 // self.bpm)

@@ -7,7 +7,6 @@ MPREMOTE="${MPREMOTE:-mpremote}"
 FILES=(
   main.py
   config.py
-  demo.py
   display.py
   hw.py
   logic.py

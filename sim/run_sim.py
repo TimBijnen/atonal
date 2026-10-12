@@ -9,7 +9,6 @@
 #   space          click the encoder button      (hold = "long" = new row)
 #   c              clock pulse (CLK in)           r  reset (RST in)
 #   d              toggle DIR switch              m  toggle MODE switch
-#   z              start/stop the demo
 #   esc / close    quit
 #
 # It drops a fake `machine` and `framebuf` onto the import path and swaps
@@ -123,13 +122,6 @@ def _toggle(pin_id):
         p.drive(0 if p.value() else 1)
 
 
-def _toggle_demo():
-    app = sim_app
-    if app is None:
-        return
-    app.set_demo(not app.demo_active)
-
-
 # --- headless snapshot mode ----------------------------------------------
 def snapshot_mode(seconds):
     try:
@@ -179,8 +171,6 @@ def window_mode():
                         _toggle(config.PIN_SW_DIR)
                     elif e.key == pygame.K_m:
                         _toggle(config.PIN_SW_MODE)
-                    elif e.key == pygame.K_z:
-                        _toggle_demo()
                 elif e.type == pygame.KEYUP:
                     if e.key == pygame.K_SPACE:
                         _set(config.PIN_ENC_SW, 1)

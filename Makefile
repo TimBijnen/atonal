@@ -1,7 +1,7 @@
 MPREMOTE ?= mpremote
 PICO_PORT ?= /dev/ttyACM0
 
-FIRMWARE_FILES := main.py config.py demo.py display.py hw.py logic.py menu.py sequencer.py toneclock.py
+FIRMWARE_FILES := main.py config.py display.py hw.py logic.py menu.py sequencer.py toneclock.py
 
 .PHONY: check-tools deploy run sim venv-new venv-activate install
 
