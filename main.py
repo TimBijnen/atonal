@@ -1,13 +1,16 @@
-# main.py - twelve-tone sequencer: matrix mode, tone clock mode, menu
+# main.py - twelve-tone sequencer, 4 voices: matrix, tone clock and
+# tertsverwanten modes, menu
 #
 # Controls
-#   turn encoder        play view: next/previous row number (matrix) or hour (tone clock)
+#   turn encoder        play view: next/previous row number (matrix), hour
+#                       (tone clock) or which chords may follow (terts)
 #   click               open the menu
-#   hold (0.7 s)        new row (matrix) / next field (tone clock)
+#   hold (0.7 s)        new row (matrix) / next field (tone clock) /
+#                       back to the home chord (terts)
 #   DIR toggle          play backwards (P<->R, I<->RI, clock reversed)
 #   MODE toggle         swap rows and columns (P<->I)
-#   CLK in              next note (when Clock = ext)
-#   RST in              back to the first note
+#   CLK in              next step (when Clock = ext)
+#   RST in              back to the first step (terts: the home chord)
 #
 # Clock sources (menu): ext = CLK jack, int = internal tempo.
 
@@ -15,8 +18,14 @@ import time
 import display as D
 import hw
 import config
+import terts
 from sequencer import Sequencer
 from menu import Menu
+
+
+def chord_name(chord):
+    root, q = chord
+    return D.label(root) + ('m' if q == terts.MINOR else '')
 
 
 class App:
@@ -39,7 +48,7 @@ class App:
         self.gate_off_at = None
         self.trig_off_at = None
         self.flips = (False, False)
-        self.last_note = None
+        self.last_notes = None       # the 4 voices of the last step
 
         global app
         app = self
@@ -48,6 +57,21 @@ class App:
         self.draw_status(all_lines=True)
 
     # ---------------------------------------------------------- drawing
+    def _terts_text(self):
+        """Terts: (chord name, how it got there) for the middle of the view."""
+        q = self.seq
+        if q.chord is None:
+            return '-', 'home ' + chord_name((q.home, terts.MAJOR))
+        if q.prev is None:
+            return chord_name(q.chord), 'home'
+        return chord_name(q.chord), 'from %s, %d shared' % (chord_name(q.prev), q.shared)
+
+    def _terts_pcs(self):
+        q = self.seq
+        cur = terts.triad(*q.chord) if q.chord else ()
+        prev = terts.triad(*q.prev) if q.prev else ()
+        return cur, prev
+
     def redraw_top(self):
         q, sc = self.seq, self.screen
         q.build(*self.flips)
@@ -55,11 +79,14 @@ class App:
             return                    # covered by the mode picker; redrawn when it closes
         if q.mode == 'matrix':
             sc.matrix.show(q.matrix())
-            kind, i = q.line()
-            sc.matrix.set_line(kind, i)
-        else:
+            sc.matrix.set_lines(q.lines())
+        elif q.mode == 'clock':
             sub = 'field %d/%d' % (q.variant + 1, q.variants()) if q.full else 'no 12-tone field'
             sc.clock.show(q.groups, q.hour, sub)
+        else:
+            cur, prev = self._terts_pcs()
+            title, sub = self._terts_text()
+            sc.terts.show(cur, prev, title, sub, terts.FILTERS[q.terts_filter][0])
 
     def draw_status(self, all_lines=False):
         if self.menu.open:
@@ -67,9 +94,13 @@ class App:
         q, sc = self.seq, self.screen
         if q.mode == 'matrix':
             sc.line(0, 'MATRIX  %s' % q.name())
-        else:
+        elif q.mode == 'clock':
             sc.line(0, 'CLOCK %s  %d/%d' % (q.name()[5:], q.variant + 1, q.variants()))
-        self.draw_note()
+        elif q.chord is None or q.prev is None:
+            sc.line(0, 'TERTS  %s' % chord_name((q.home, terts.MAJOR)))
+        else:
+            sc.line(0, 'TERTS %s > %s (%d)' % (chord_name(q.prev), chord_name(q.chord), q.shared))
+        self.draw_notes()
         if all_lines:
             sc.line(2, 'Trans %s  Oct %d' % (D.NAMES[q.transpose], q.octave), D.DIM)
             if self.clock_src == 'ext':
@@ -79,31 +110,44 @@ class App:
             sc.line(4, 'DAC ok' if self.out.dac_ok else 'No DAC (screen)', D.DIM)
             sc.line(5, 'Click=menu Hold=new', D.DIM)
 
-    def draw_note(self):
+    def draw_notes(self):
+        """Status line 1: the note of each voice, in the voice colours."""
         if self.menu.open:
             return
         q = self.seq
-        n = q.step if q.step else len(q.items)
-        if self.last_note is None:
-            self.screen.line(1, 'Note -')
+        if self.last_notes is None:
+            self.screen.line(1, '-')
+            return
+        if q.mode == 'clock':
+            colours = [D.GROUP[i % 4] for i in range(4)]    # voice i = trichord i
+        elif q.mode == 'matrix':
+            colours = D.VOICE
         else:
-            self.screen.line(1, 'Note %-3s %2d/%d' % (D.NAMES[self.last_note], n, len(q.items)))
+            colours = (D.TXT,) * 4                          # bass, tenor, alto, soprano
+        parts = [('%-3s' % D.NAMES[n % 12], colours[i]) for i, n in enumerate(self.last_notes)]
+        if q.items:
+            n = q.step if q.step else len(q.items)
+            parts.append(('%2d/%d' % (n, len(q.items)), D.TXT))
+        self.screen.parts(1, parts)
 
     def changed(self, what):
-        """Something changed. what: 'top', 'line', 'new' or 'none'."""
+        """Something changed. what: 'top', 'line', 'filter', 'new' or 'none'."""
         q = self.seq
         if what == 'new':
             if q.mode == 'matrix':
                 q.new_matrix()
-            else:
+            elif q.mode == 'clock':
                 q.variant = (q.variant + 1) % q.variants()
+            else:
+                q.restart()
             what = 'top'
         if what == 'top':
             self.redraw_top()
         elif what == 'line' and q.mode == 'matrix' and not self.menu.picking:
             q.build(*self.flips)
-            kind, i = q.line()
-            self.screen.matrix.set_line(kind, i)
+            self.screen.matrix.set_lines(q.lines())
+        elif what == 'filter' and q.mode == 'terts' and not self.menu.picking:
+            self.screen.terts.set_filter(terts.FILTERS[q.terts_filter][0])
         else:
             q.build(*self.flips)
 
@@ -118,9 +162,9 @@ class App:
         if flips != self.flips and q.step == 0:       # toggles act at the start of a row
             self.flips = flips
             self.changed('line' if q.mode == 'matrix' else 'top')
-        pc, key, wrapped = q.next()
-        self.last_note = pc
-        self.out.note(q.semis(pc))
+        notes, key, wrapped = q.next()
+        self.last_notes = notes
+        self.out.notes([q.semis(n) for n in notes])
         now = time.ticks_ms()
         self.out.set(self.out.gate, True)
         self.out.set(self.out.trig, True)
@@ -132,9 +176,18 @@ class App:
         else:
             self.gate_off_at = None                   # follows the clock input
         if not self.menu.picking:                 # views are hidden under the mode picker
-            view = self.screen.matrix if q.mode == 'matrix' else self.screen.clock
-            view.set_now(key)
-        self.draw_note()
+            if q.mode == 'matrix':
+                self.screen.matrix.set_now(key)
+            elif q.mode == 'clock':
+                self.screen.clock.set_now(key)
+            else:
+                cur, prev = self._terts_pcs()
+                title, sub = self._terts_text()
+                self.screen.terts.set_chord(cur, prev, title, sub)
+        if q.mode == 'terts':
+            self.draw_status()                    # the move is on line 0
+        else:
+            self.draw_notes()
         if wrapped:
             self.out.set(self.out.end, True)
 
@@ -166,10 +219,13 @@ class App:
                     if q.mode == 'matrix':
                         q.num = (q.num + d) % 12
                         self.changed('line')
-                    else:
+                    elif q.mode == 'clock':
                         q.hour = (q.hour - 1 + d) % 12 + 1
                         q.variant = 0
                         self.changed('top')
+                    else:
+                        q.terts_filter = (q.terts_filter + d) % len(terts.FILTERS)
+                        self.changed('filter')
                     self.draw_status()
             b = self.btn.poll()
             if b == 'click':
@@ -184,7 +240,7 @@ class App:
 
             # reset input
             if self.rst.take():
-                self.seq.step = 0
+                self.seq.reset()
 
             # clock
             if self.clock_src == 'ext':

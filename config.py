@@ -1,7 +1,9 @@
 # config.py - hardware settings. Change these to match your build.
 
 # DAC: 'MCP4725' (breadboard prototype), 'MCP4728' (PCB) or None (no DAC yet).
-# If the DAC is not found on I2C, the module still runs (screen only).
+# The MCP4728 has 4 channels: voices 1-4 on outputs A-D. The MCP4725 has one:
+# only voice 1 comes out. If the DAC is not found on I2C, the module still
+# runs (screen only).
 DAC_TYPE = 'MCP4725'
 DAC_ADDR = 0x60            # MCP4725 is sometimes 0x62: check with i2c.scan()
 

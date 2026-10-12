@@ -9,16 +9,18 @@
 import time
 import display as D
 import logic
+import terts
 from sequencer import FORMS, toneclock_roman
 
 NOTE = D.NAMES
+MODE_NAMES = {'matrix': 'Matrix', 'clock': 'Clock', 'terts': 'Terts'}
 
 
 def _items(app):
     q = app.seq
     it = [
         # (label, current value as text, change(delta), what to redraw)
-        ('Mode', lambda: 'Matrix' if q.mode == 'matrix' else 'Clock', None, 'mode'),
+        ('Mode', lambda: MODE_NAMES[q.mode], None, 'mode'),
     ]
     if q.mode == 'matrix':
         it += [
@@ -30,12 +32,18 @@ def _items(app):
             ('Chords', lambda: 'strict' if logic.CHORDS is logic.STRICT else 'maj/min',
              lambda d: logic.set_strict(logic.CHORDS is not logic.STRICT), 'none'),
         ]
-    else:
+    elif q.mode == 'clock':
         it += [
             ('Hour', lambda: toneclock_roman(q.hour),
              lambda d: (setattr(q, 'hour', (q.hour - 1 + d) % 12 + 1), setattr(q, 'variant', 0)), 'top'),
             ('Field', lambda: '%d/%d' % (q.variant + 1, q.variants()),
              lambda d: setattr(q, 'variant', (q.variant + d) % q.variants()), 'top'),
+        ]
+    else:
+        it += [
+            ('Shared', lambda: terts.FILTERS[q.terts_filter][0],
+             lambda d: setattr(q, 'terts_filter', (q.terts_filter + d) % len(terts.FILTERS)), 'filter'),
+            ('Restart', lambda: 'click', None, 'new'),
         ]
     it += [
         ('Transpose', lambda: NOTE[q.transpose],

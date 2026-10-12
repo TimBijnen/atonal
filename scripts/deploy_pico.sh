@@ -12,6 +12,7 @@ FILES=(
   logic.py
   menu.py
   sequencer.py
+  terts.py
   toneclock.py
 )
 

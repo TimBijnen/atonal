@@ -107,19 +107,26 @@ class Outputs:
     def set(self, pin, on):
         pin.value((not on) if config.INVERT_OUTPUTS else on)
 
-    def note(self, semis):
-        """Send a pitch: semitones above 0V (0..60 = 5 octaves)."""
-        volts = semis / 12
-        code = int(round(volts / config.GAIN / config.DAC_VREF * 4095))
-        code = max(0, min(4095, code))
+    def notes(self, semis):
+        """Send the pitches of the 4 voices: semitones above 0V (12 per volt).
+        MCP4728: voices 1-4 on channels A-D. MCP4725: voice 1 only."""
+        codes = []
+        for s in semis:
+            code = int(round(s / 12 / config.GAIN / config.DAC_VREF * 4095))
+            codes.append(max(0, min(4095, code)))
         if not self.dac_ok:
-            return code
+            return codes
         try:
             if config.DAC_TYPE == 'MCP4728':
-                # channel A, internal 2.048 V reference, gain 1
-                self.i2c.writeto(config.DAC_ADDR, bytes([0x58, 0x80 | (code >> 8), code & 0xFF]))
+                # multi-write (input registers only, not the EEPROM), one
+                # channel after another; internal 2.048 V reference, gain 1
+                buf = bytearray()
+                for ch, code in enumerate(codes[:4]):
+                    buf += bytes([0x40 | (ch << 1), 0x80 | (code >> 8), code & 0xFF])
+                self.i2c.writeto(config.DAC_ADDR, buf)
             else:
+                code = codes[0]
                 self.i2c.writeto(config.DAC_ADDR, bytes([(code >> 8) & 0x0F, code & 0xFF]))
         except OSError:
             self.dac_ok = False
-        return code
+        return codes
