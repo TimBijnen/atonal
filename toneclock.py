@@ -4,11 +4,16 @@
 # For most hours, four copies of the trichord (transposed and/or mirrored)
 # together use all 12 notes exactly once: a twelve-tone field.
 # Hour X (the diminished trichord) is the only one that cannot do that.
+# Schat extends it to the diminished seventh chord (0 3 6 9): three of
+# those fill the twelve notes, drawn as three squares on the clock.
 
 HOURS = (
     (0, 1, 2), (0, 1, 3), (0, 1, 4), (0, 1, 5), (0, 1, 6), (0, 2, 4),
     (0, 2, 5), (0, 2, 6), (0, 2, 7), (0, 3, 6), (0, 3, 7), (0, 4, 8),
 )
+
+# chords that build an hour's field, where it is not the hour's trichord
+FIELD_CHORD = {10: (0, 3, 6, 9)}
 
 
 def _forms(tri):
@@ -39,10 +44,11 @@ _cache = {}
 
 def fields(hour):
     """All twelve-tone fields of an hour (1..12), one per transposition class.
-    Each field is a list of 4 trichords (ordered note lists), the first starting on C."""
+    Each field is a list of chords (ordered note lists), the first starting on C:
+    4 trichords, or 3 tetrachords for hour X."""
     if hour in _cache:
         return _cache[hour]
-    forms = _forms(HOURS[hour - 1])
+    forms = _forms(FIELD_CHORD.get(hour, HOURS[hour - 1]))
     found, seen = [], set()
 
     def rec(left, chosen):
@@ -70,14 +76,14 @@ def fields(hour):
 
 
 def field(hour, variant=0, transpose=0):
-    """The trichords to play. Returns (groups, is_full)."""
+    """The chords to play. Returns (groups, is_full)."""
     fl = fields(hour)
     if fl:
         g = fl[variant % len(fl)]
         full = True
     else:
-        # hour X: three diminished trichords, then the 3 notes left over
-        g = [[0, 3, 6], [1, 4, 7], [2, 5, 8], [9, 10, 11]]
+        # no field found (does not happen with FIELD_CHORD): chromatic groups
+        g = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]]
         full = False
     return [[(x + transpose) % 12 for x in grp] for grp in g], full
 
