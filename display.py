@@ -15,11 +15,7 @@ from machine import Pin, SPI
 import framebuf
 import time
 import math
-
-try:
-    import _font as font_module
-except ImportError:
-    font_module = None
+import config
 
 W, H = 320, 480
 
@@ -103,7 +99,8 @@ class ST7796:
                         0x43, 0x42, 0x3B, 0x16, 0x14, 0x17, 0x1B])
         self.cmd(0xF0, [0x3C])                      # lock again
         self.cmd(0xF0, [0x69])
-        # self.cmd(0x21)                            # uncomment if colours are inverted
+        if config.LCD_INVERT:
+            self.cmd(0x21)                          # inversion on (see config.py)
         self.cmd(0x29); time.sleep_ms(50)           # display on
 
     def window(self, x0, y0, x1, y1):
@@ -130,29 +127,26 @@ class ST7796:
         self.cs(1)
 
 
-def big_text(s, fg, bg, scale=1, xscale=None):
-    """Render the original 8x8 bitmap font at 1:1 size with no scaling."""
-    font = getattr(font_module, 'FONT', getattr(framebuf, 'FONT', None))
-    if font is None:
-        return framebuf.FrameBuffer(bytearray(1), 1, 1, framebuf.RGB565), bytearray(), 1, 1
-
-    w = max(1, len(s) * 8)
-    out = bytearray(w * 8 * 2)
-    ofb = framebuf.FrameBuffer(out, w, 8, framebuf.RGB565)
+def big_text(s, fg, bg, scale=2, xscale=None):
+    """Render text with the built-in 8x8 font, scaled. Returns (fb, buf, w, h).
+    xscale may be a fraction (1.5) to fit two characters in a narrow cell."""
+    xs = xscale or scale
+    w = max(1, len(s)) * 8
+    src = bytearray(((w + 7) // 8) * 8)
+    sfb = framebuf.FrameBuffer(src, w, 8, framebuf.MONO_HLSB)
+    sfb.fill(0)
+    sfb.text(s, 0, 0, 1)
+    ow, oh = int(w * xs), 8 * scale
+    out = bytearray(ow * oh * 2)
+    ofb = framebuf.FrameBuffer(out, ow, oh, framebuf.RGB565)
     ofb.fill(bg)
-    x = 0
-    for ch in s:
-        code = ord(ch)
-        if code < 0x20 or code > 0x7F:
-            code = 0x20
-        glyph = font[code - 0x20]
-        for row in range(8):
-            bits = glyph[row]
-            for col in range(8):
-                if bits & (1 << col):
-                    ofb.pixel(x + col, row, fg)
-        x += 8
-    return ofb, out, w, 8
+    for x in range(w):
+        x0 = int(x * xs)
+        x1 = int((x + 1) * xs)
+        for y in range(8):
+            if sfb.pixel(x, y):
+                ofb.fill_rect(x0, y * scale, x1 - x0, scale, fg)
+    return ofb, out, ow, oh
 
 
 # ------------------------------------------------------------------ screen
@@ -204,7 +198,7 @@ class MatrixView:
             buf = bytearray(CELL_PX * CELL_PX * 2)
             cfb = framebuf.FrameBuffer(buf, CELL_PX, CELL_PX, framebuf.RGB565)
             cfb.fill(bg)
-            tfb, _, tw, th = big_text(lab, fg, bg, 1)
+            tfb, _, tw, th = big_text(lab, fg, bg, 2, 1.5 if len(lab) > 1 else 2)
             cfb.blit(tfb, (CELL_PX - tw) // 2, (CELL_PX - th) // 2 + 1)
             self.cache[key] = buf
         return self.cache[key]
@@ -299,7 +293,7 @@ class ClockView:
             col, fg = GROUP[g % 4], NOW_TXT
         self._disc(x, y, DOT, col)
         lab = label(pc)
-        _, buf, w, h = big_text(lab, fg, col, 1)
+        _, buf, w, h = big_text(lab, fg, col, 2, 1.5 if len(lab) > 1 else 2)
         self.lcd.blit(buf, x - w // 2, y - h // 2 + 1, w, h)
 
     def show(self, groups, hour, sub=''):

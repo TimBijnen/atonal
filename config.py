@@ -14,6 +14,12 @@ GAIN = 2.5                 # trim RV1 so the octaves are in tune
 INVERT_OUTPUTS = True
 TRIG_MS = 10               # length of the TRIG and END pulses
 
+# Screen: the background is meant to be near-black. Some ST7796 panels show
+# every colour inverted (a white background, a blue highlight instead of
+# orange). For those, set True. AliExpress module: False. TinyTronics module
+# (showed a white background): try True.
+LCD_INVERT = False
+
 # Encoder: most EC11 / KY-040 give 4 steps per click. If one click moves
 # two items, set 2. If turning right goes the wrong way, set ENC_REVERSE.
 ENC_STEPS = 4

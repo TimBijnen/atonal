@@ -1,6 +1,6 @@
 # framebuf.py - minimal pure-Python stand-in for MicroPython's framebuf,
 # just enough for display.py (RGB565 + MONO_HLSB, fill/fill_rect/text/pixel/blit).
-from _font import FONT  # 8x8, ASCII 0x20..0x7F, bit (1<<col), LSB = leftmost
+from _font import FONT  # MicroPython's 8x8 font: byte = column, bit 0 = top row
 
 # format constants (values only need to be self-consistent)
 MONO_VLSB = 0
@@ -81,13 +81,15 @@ class FrameBuffer:
             self._set(x, yy, c)
 
     def text(self, s, x, y, c=1):
-        for ch in s:
+        for ch in s:                      # same loop as modframebuf.c
             o = ord(ch)
-            glyph = FONT[o - 0x20] if 0x20 <= o < 0x80 else FONT[0]
-            for row in range(8):
-                bits = glyph[row]
-                for col in range(8):
-                    if (bits >> col) & 1:
+            if o < 32 or o > 127:
+                o = 127
+            glyph = FONT[o - 32]
+            for col in range(8):
+                bits = glyph[col]
+                for row in range(8):
+                    if (bits >> row) & 1:
                         self._set(x + col, y + row, c)
             x += 8
 
